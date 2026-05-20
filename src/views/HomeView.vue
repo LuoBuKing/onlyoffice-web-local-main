@@ -13,6 +13,7 @@
         v-if="docmentObj?.fileName"
         style="height: 100%; width: 100%"
         :file="docmentObj"
+        :readonly="editorReadonly"
         ref="documentHandler"
         @onlyoffice-cursor="onOnlyofficeCursor"
       />
@@ -48,7 +49,7 @@
 
 <script lang="ts" setup>
 import { FolderOpened } from '@element-plus/icons-vue'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { DocmentType } from '@/utils/util'
 import DocumentHandler from '../components/DocumentHandler.vue'
 import { useRoute } from 'vue-router'
@@ -96,6 +97,11 @@ const onOpenDocument = () => {
 }
 
 const route = useRoute()
+
+const editorReadonly = computed(() => {
+  const ro = route.query.readonly
+  return ro === '1' || ro === 'true'
+})
 
 async function initFileUrl() {
   const url = route.query.url as string | undefined

@@ -21,6 +21,8 @@ const X2T = ref(null)
 // 设置prop
 const props = defineProps<{
     file: DocmentType
+    /** 只读预览：禁止编辑与保存 */
+    readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -764,27 +766,46 @@ function createEditorInstance(config: {
     if (!window.DocsAPI) {
         throw new Error('OnlyOffice DocsAPI 未加载')
     }
+    const readOnly = !!props.readonly
     editor.value = new window.DocsAPI.DocEditor('iframe', {
         document: {
             title: fileName,
             url: fileName, // 使用文件名作为标识
             fileType: fileType,
             permissions: {
-                edit: true,
+                edit: !readOnly,
+                download: true,
+                print: true,
+                // 只读也保持 review:true，避免 URL 出现 mode=view 导致 isEdit=false 触发 web-apps Header 的 userName 空指针
+                review: true,
+                comment: !readOnly,
                 chat: false,
                 protect: false,
             },
         },
         editorConfig: {
             lang: 'zh',
-            plugins: {
-                autostart: [CURSOR_PLUGIN_GUID],
-                pluginsData: [getCursorPluginConfigUrl()],
+            user: {
+                id: 'zb-office-viewer',
+                name: '预览用户',
+                firstname: '预览',
+                lastname: '用户',
             },
+            ...(readOnly
+                ? {
+                      coEditing: { mode: 'strict', change: false },
+                  }
+                : {
+                      plugins: {
+                          autostart: [CURSOR_PLUGIN_GUID],
+                          pluginsData: [getCursorPluginConfigUrl()],
+                      },
+                  }),
             customization: {
                 help: false,
                 about: false,
-                hideRightMenu: true,
+                hideRightMenu: readOnly,
+                comments: !readOnly,
                 features: {
                     spellcheck: {
                         change: false,
@@ -792,7 +813,7 @@ function createEditorInstance(config: {
                 },
                 anonymous: {
                     request: false,
-                    label: 'Guest',
+                    label: '预览用户',
                 },
             },
         },
@@ -814,7 +835,18 @@ function createEditorInstance(config: {
             },
             onDocumentReady: () => {
                 console.log('文档加载完成:', fileName)
-                scheduleInnerCursorBridge()
+                if (readOnly) {
+                    const api = getEditorApiFromDom()
+                    if (api && typeof api.asc_setViewMode === 'function') {
+                        try {
+                            ;(api.asc_setViewMode as (this: unknown, v: boolean) => void).call(api, true)
+                        } catch (e) {
+                            console.warn('[OnlyOffice] asc_setViewMode', e)
+                        }
+                    }
+                } else {
+                    scheduleInnerCursorBridge()
+                }
                 const readyMsg = { type: 'ONLYOFFICE_DOCUMENT_READY' }
                 window.postMessage(readyMsg, '*')
                 try {
@@ -825,7 +857,7 @@ function createEditorInstance(config: {
                     /* ignore */
                 }
             },
-            onSave: handleSaveDocument,
+            onSave: readOnly ? undefined : handleSaveDocument,
             // writeFile
             // todo writeFile 当外部粘贴图片时候处理
             writeFile: handleWriteFile,
