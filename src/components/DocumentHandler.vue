@@ -244,7 +244,58 @@ function getDocumentHtml(callback: (html: string | null) => void) {
     callback(getDocumentHtmlSync())
 }
 
-defineExpose({ insertTextAtCursor, insertHtmlAtCursor, getDocumentHtml, getEditorApiFromDom })
+/** 在文档中查找并选中下一处匹配（对齐 web-apps 查找框：CSearchSettings + asc_findText） */
+function findTextInDocument(text: string, forward = true): boolean {
+    const query = String(text ?? '').trim()
+    if (!query) return false
+
+    const api = getEditorApiFromDom()
+    const w = getEditorIframeWindow()
+    if (!api || typeof api.asc_findText !== 'function') {
+        console.warn('[OnlyOffice] asc_findText 不可用')
+        return false
+    }
+
+    const CSearchSettings = (w as EditorIframeWindow & { AscCommon?: { CSearchSettings?: new () => SearchSettingsLike } })
+        ?.AscCommon?.CSearchSettings
+    if (typeof CSearchSettings !== 'function') {
+        console.warn('[OnlyOffice] AscCommon.CSearchSettings 不可用')
+        return false
+    }
+
+    try {
+        const settings = new CSearchSettings()
+        settings.put_Text(query)
+        settings.put_MatchCase(false)
+        settings.put_WholeWords(false)
+        const found = !!(api.asc_findText as (s: unknown, fwd: boolean) => boolean).call(api, settings, forward)
+        if (found && typeof api.asc_StartTextAroundSearch === 'function') {
+            try {
+                ;(api.asc_StartTextAroundSearch as (this: unknown) => void).call(api)
+            } catch {
+                /* ignore */
+            }
+        }
+        return found
+    } catch (e) {
+        console.warn('[OnlyOffice] findTextInDocument', e)
+        return false
+    }
+}
+
+type SearchSettingsLike = {
+    put_Text: (t: string) => void
+    put_MatchCase: (v: boolean) => void
+    put_WholeWords: (v: boolean) => void
+}
+
+defineExpose({
+    insertTextAtCursor,
+    insertHtmlAtCursor,
+    getDocumentHtml,
+    findTextInDocument,
+    getEditorApiFromDom,
+})
 
 /** 父页 REQUEST_SAVE 等待 onSave 完成后回传 docx */
 const pendingSaveReplies = new Map<
@@ -536,7 +587,7 @@ async function exportDocumentForSave(fileName: string): Promise<SavePayload> {
 function onCursorPluginMessage(ev: MessageEvent) {
     const d = ev.data as {
         type?: string
-        payload?: { html?: string; text?: string; requestId?: string }
+        payload?: { html?: string; text?: string; requestId?: string; forward?: boolean }
         html?: string
         text?: string
     } | null
@@ -572,6 +623,35 @@ function onCursorPluginMessage(ev: MessageEvent) {
             }
         }
         getDocumentHtml(replyTo)
+        return
+    }
+    if (d.type === 'ONLYOFFICE_FIND_TEXT') {
+        const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined
+        const text = typeof d.payload?.text === 'string' ? d.payload.text : ''
+        const forward = d.payload?.forward !== false
+        let found = false
+        let error: string | undefined
+        try {
+            found = findTextInDocument(text, forward)
+        } catch (e) {
+            error = e instanceof Error ? e.message : String(e)
+        }
+        const reply = {
+            type: 'ONLYOFFICE_FIND_TEXT_REPLY',
+            payload: { requestId, found, error },
+        }
+        try {
+            ;(ev.source as Window | null)?.postMessage?.(reply, '*')
+        } catch {
+            /* ignore */
+        }
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage(reply, '*')
+            }
+        } catch {
+            /* ignore */
+        }
         return
     }
     if (d.type === 'ONLYOFFICE_REQUEST_SAVE_DOCUMENT') {
