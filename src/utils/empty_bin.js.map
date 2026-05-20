@@ -1,0 +1,1 @@
+{"version":3,"file":"empty_bin.js","sourceRoot":"","sources":["empty_bin.ts"],"names":[],"mappings":"AAAA,MAAM,CAAC,MAAM,eAAe,GAA8B;IACxD,IAAI,EAAE,OAAO;IACb,KAAK,EAAE,OAAO;IACd,GAAG,EAAE,OAAO;CACb,CAAC;AACF,MAAM,CAAC,MAAM,YAAY,GAA8B;IACrD,OAAO,EACL,unTAAunT;IACznT,OAAO,EACL,uiQAAuiQ;IACziQ,OAAO,EACL,4y8DAA4y8D;CAC/y8D,CAAC"}

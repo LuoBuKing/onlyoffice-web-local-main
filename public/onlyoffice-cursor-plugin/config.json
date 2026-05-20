@@ -1,0 +1,15 @@
+{
+  "name": "光标探针",
+  "guid": "asc.{6C757CD6-7A91-4B0F-9C2D-1E3F4A5B6C7D}",
+  "version": "1.0.0",
+  "variations": [
+    {
+      "description": "光标/选区变化时向父页面 postMessage",
+      "url": "index.html",
+      "icons": "../../icon.svg",
+      "EditorsSupport": ["word", "cell", "slide"],
+      "isViewer": true,
+      "type": "system"
+    }
+  ]
+}
