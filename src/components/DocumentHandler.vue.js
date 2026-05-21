@@ -393,16 +393,22 @@ function onCursorPluginMessage(ev) {
         return;
     }
     if (d.type === 'ONLYOFFICE_INSERT_HTML') {
+        if (ev.source !== window.parent)
+            return;
         const html = typeof d.payload?.html === 'string' ? d.payload.html : typeof d.html === 'string' ? d.html : '';
         insertHtmlAtCursor(html);
         return;
     }
     if (d.type === 'ONLYOFFICE_INSERT_TEXT') {
+        if (ev.source !== window.parent)
+            return;
         const text = typeof d.payload?.text === 'string' ? d.payload.text : typeof d.text === 'string' ? d.text : '';
         insertTextAtCursor(text);
         return;
     }
     if (d.type === 'ONLYOFFICE_GET_DOCUMENT_HTML') {
+        if (ev.source !== window.parent)
+            return;
         const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined;
         const replyTo = (html) => {
             const reply = { type: 'ONLYOFFICE_GET_DOCUMENT_HTML_REPLY', payload: { requestId, html } };
@@ -418,6 +424,8 @@ function onCursorPluginMessage(ev) {
         return;
     }
     if (d.type === 'ONLYOFFICE_REQUEST_SAVE_DOCUMENT') {
+        if (ev.source !== window.parent)
+            return;
         const requestId = typeof d.payload?.requestId === 'string'
             ? d.payload.requestId
             : `save-${Date.now()}`;

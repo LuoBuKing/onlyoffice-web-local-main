@@ -122,8 +122,8 @@ function collectEditorCursorSnapshot(api: Record<string, unknown>): Record<strin
                 typeof selectedText === 'string'
                     ? selectedText.length
                     : Array.isArray(selectedText)
-                      ? JSON.stringify(selectedText).length
-                      : 0
+                        ? JSON.stringify(selectedText).length
+                        : 0
         }
         if (typeof getType === 'function') {
             out.selectionType = (getType as (this: unknown) => unknown).call(api)
@@ -174,6 +174,68 @@ function getEditorApiFromDom(): Record<string, unknown> | null {
     return api ?? null
 }
 
+/** 读取 SDK 脏标记（asc_onDocumentModifiedChanged 触发后应用此值判断，不能自行置 true） */
+function readEditorDocumentModified(api: Record<string, unknown>): boolean | null {
+    const isMod = api.asc_isDocumentModified ?? api.isDocumentModified
+    if (typeof isMod !== 'function') return null
+    try {
+        return !!(isMod as (this: unknown) => boolean).call(api)
+    } catch {
+        return null
+    }
+}
+
+/**
+ * 清除脏标记。仅 SetUnchangedDocument 无效：isDocumentModified 还看 History 保存点（NO vs Ia）。
+ * 正式保存流程会 History.KBf()；我们导出上传后需同样对齐。
+ */
+function clearEditorDocumentModified(api?: Record<string, unknown> | null): boolean {
+    const target = api ?? getEditorApiFromDom()
+    const w = getEditorIframeWindow() as EditorIframeWindow & {
+        AscCommon?: { History?: { KBf?: (flag?: unknown) => void; Ia?: number; NO?: number | null } }
+    }
+    let ok = false
+
+    const history = w?.AscCommon?.History
+    if (history && typeof history.KBf === 'function') {
+        try {
+            history.KBf(false)
+            ok = true
+        } catch (e) {
+            console.warn('[OnlyOffice] AscCommon.History.KBf failed', e)
+        }
+    }
+
+    if (target) {
+        const sync = target.CheckChangedDocument ?? target.asc_CheckChangedDocument
+        if (typeof sync === 'function') {
+            try {
+                ; (sync as (this: unknown) => void).call(target)
+            } catch {
+                /* ignore */
+            }
+        }
+        const clear = target.asc_SetUnchangedDocument ?? target.SetUnchangedDocument
+        if (typeof clear === 'function') {
+            try {
+                ; (clear as (this: unknown) => void).call(target)
+                ok = true
+            } catch (e) {
+                console.warn('[OnlyOffice] SetUnchangedDocument failed', e)
+            }
+        }
+    }
+
+    const modified = target ? readEditorDocumentModified(target) : null
+    console.info('[OnlyOffice] clearEditorDocumentModified', {
+        ok,
+        modified,
+        historyIa: history?.Ia,
+        historyNO: history?.NO,
+    })
+    return ok && modified === false
+}
+
 /** 在当前光标处插入纯文本（Word/表格等内置支持 pluginMethod_InputText 时可用） */
 function insertTextAtCursor(text: string): boolean {
     const api = getEditorApiFromDom()
@@ -182,7 +244,7 @@ function insertTextAtCursor(text: string): boolean {
         return false
     }
     try {
-        ;(api.pluginMethod_InputText as (this: unknown, t: string, replace: string) => void).call(
+        ; (api.pluginMethod_InputText as (this: unknown, t: string, replace: string) => void).call(
             api,
             String(text ?? ''),
             '',
@@ -202,7 +264,7 @@ function insertHtmlAtCursor(html: string): boolean {
         return false
     }
     try {
-        ;(api.pluginMethod_PasteHtml as (this: unknown, h: string) => void).call(api, String(html ?? ''))
+        ; (api.pluginMethod_PasteHtml as (this: unknown, h: string) => void).call(api, String(html ?? ''))
         return true
     } catch (e) {
         console.error('[OnlyOffice] insertHtmlAtCursor 失败', e)
@@ -271,7 +333,7 @@ function findTextInDocument(text: string, forward = true): boolean {
         const found = !!(api.asc_findText as (s: unknown, fwd: boolean) => boolean).call(api, settings, forward)
         if (found && typeof api.asc_StartTextAroundSearch === 'function') {
             try {
-                ;(api.asc_StartTextAroundSearch as (this: unknown) => void).call(api)
+                ; (api.asc_StartTextAroundSearch as (this: unknown) => void).call(api)
             } catch {
                 /* ignore */
             }
@@ -314,7 +376,7 @@ function postSaveDocumentReply(
         payload: { requestId, fileName: payload?.fileName, bytes: payload?.bytes, error },
     }
     try {
-        ;(target as Window | null)?.postMessage?.(reply, '*')
+        ; (target as Window | null)?.postMessage?.(reply, '*')
     } catch {
         /* ignore */
     }
@@ -404,7 +466,7 @@ function exportWithApiAha(
             api.Aha = (result: unknown) => {
                 cleanup()
                 try {
-                    ;(inner as (this: unknown, r: unknown) => void).call(api, result)
+                    ; (inner as (this: unknown, r: unknown) => void).call(api, result)
                 } catch {
                     /* ignore */
                 }
@@ -434,7 +496,7 @@ function triggerEditorSaveCommands() {
     const api = getEditorApiFromDom()
     if (api && typeof api.asc_Save === 'function') {
         try {
-            ;(api.asc_Save as (this: unknown) => void).call(api)
+            ; (api.asc_Save as (this: unknown) => void).call(api)
         } catch (e) {
             console.warn('[OnlyOffice] asc_Save failed', e)
         }
@@ -532,7 +594,7 @@ async function exportDocumentForSave(fileName: string): Promise<SavePayload> {
                 api,
                 fileName,
                 () => {
-                    ;(api.pluginMethod_GetFileToDownload as (this: unknown, e: string) => void).call(
+                    ; (api.pluginMethod_GetFileToDownload as (this: unknown, e: string) => void).call(
                         api,
                         ext,
                     )
@@ -552,7 +614,7 @@ async function exportDocumentForSave(fileName: string): Promise<SavePayload> {
                     api,
                     fileName,
                     () => {
-                        ;(api.asc_DownloadAs as (this: unknown, o: object) => void).call(api, opts)
+                        ; (api.asc_DownloadAs as (this: unknown, o: object) => void).call(api, opts)
                     },
                     45_000,
                 )
@@ -601,23 +663,26 @@ function onCursorPluginMessage(ev: MessageEvent) {
         return
     }
     if (d.type === 'ONLYOFFICE_INSERT_HTML') {
+        if (ev.source !== window.parent) return
         const html =
             typeof d.payload?.html === 'string' ? d.payload.html : typeof d.html === 'string' ? d.html : ''
         insertHtmlAtCursor(html)
         return
     }
     if (d.type === 'ONLYOFFICE_INSERT_TEXT') {
+        if (ev.source !== window.parent) return
         const text =
             typeof d.payload?.text === 'string' ? d.payload.text : typeof d.text === 'string' ? d.text : ''
         insertTextAtCursor(text)
         return
     }
     if (d.type === 'ONLYOFFICE_GET_DOCUMENT_HTML') {
+        if (ev.source !== window.parent) return
         const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined
         const replyTo = (html: string | null) => {
             const reply = { type: 'ONLYOFFICE_GET_DOCUMENT_HTML_REPLY', payload: { requestId, html } }
             try {
-                ;(ev.source as Window | null)?.postMessage?.(reply, '*')
+                ; (ev.source as Window | null)?.postMessage?.(reply, '*')
             } catch (e) {
                 console.warn('[OnlyOffice] GET_DOCUMENT_HTML reply', e)
             }
@@ -626,6 +691,7 @@ function onCursorPluginMessage(ev: MessageEvent) {
         return
     }
     if (d.type === 'ONLYOFFICE_FIND_TEXT') {
+        if (ev.source !== window.parent) return
         const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined
         const text = typeof d.payload?.text === 'string' ? d.payload.text : ''
         const forward = d.payload?.forward !== false
@@ -641,7 +707,7 @@ function onCursorPluginMessage(ev: MessageEvent) {
             payload: { requestId, found, error },
         }
         try {
-            ;(ev.source as Window | null)?.postMessage?.(reply, '*')
+            ; (ev.source as Window | null)?.postMessage?.(reply, '*')
         } catch {
             /* ignore */
         }
@@ -655,6 +721,8 @@ function onCursorPluginMessage(ev: MessageEvent) {
         return
     }
     if (d.type === 'ONLYOFFICE_REQUEST_SAVE_DOCUMENT') {
+        // 仅处理父页对本 iframe 发起的保存，避免同页多实例或误广播时全部导出
+        if (ev.source !== window.parent) return
         const requestId =
             typeof d.payload?.requestId === 'string'
                 ? d.payload.requestId
@@ -662,6 +730,7 @@ function onCursorPluginMessage(ev: MessageEvent) {
         void (async () => {
             try {
                 const payload = await exportDocumentForSave(props.file.fileName)
+                clearEditorDocumentModified(getEditorApiFromDom())
                 postSaveDocumentReply(ev.source, requestId, payload)
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e)
@@ -701,7 +770,13 @@ function scheduleInnerCursorBridge() {
     innerBridgeTimer = setInterval(() => {
         tries++
         const iframe = document.querySelector('.editor-container iframe') as HTMLIFrameElement | null
-        const w = iframe?.contentWindow as (Window & { Asc?: { editor?: Record<string, unknown> }; editor?: Record<string, unknown> }) | undefined
+        const w = iframe?.contentWindow as
+            | (Window & {
+                Asc?: { editor?: Record<string, unknown> }
+                editor?: Record<string, unknown>
+                AscCommon?: { History?: { Ia?: number; NO?: number | null } }
+            })
+            | undefined
         const api = (w?.Asc?.editor ?? w?.editor) as Record<string, unknown> | undefined
         const pair = api ? getEditorAttachPair(api) : null
         if (!pair || !api) {
@@ -722,7 +797,16 @@ function scheduleInnerCursorBridge() {
         }
         const onMove = () => fire('asc_onCursorMove')
         const onSel = () => fire('asc_onSelectionEnd')
-        const onModified = () => postDocumentModified(true)
+
+        let lastSdkModified = false
+        const onModified = () => {
+            // SDK：事件名是「修改状态发生变化」；isDocumentModified 由 History 保存点决定，不只是 yKe
+            const modified = readEditorDocumentModified(api) === true
+            if (modified && !lastSdkModified) {
+                postDocumentModified(true)
+            }
+            lastSdkModified = modified
+        }
 
         pair.attach('asc_onCursorMove', onMove)
         pair.attach('asc_onSelectionEnd', onSel)
@@ -873,14 +957,14 @@ function createEditorInstance(config: {
             },
             ...(readOnly
                 ? {
-                      coEditing: { mode: 'strict', change: false },
-                  }
+                    coEditing: { mode: 'strict', change: false },
+                }
                 : {
-                      plugins: {
-                          autostart: [CURSOR_PLUGIN_GUID],
-                          pluginsData: [getCursorPluginConfigUrl()],
-                      },
-                  }),
+                    plugins: {
+                        autostart: [CURSOR_PLUGIN_GUID],
+                        pluginsData: [getCursorPluginConfigUrl()],
+                    },
+                }),
             customization: {
                 help: false,
                 about: false,
@@ -919,7 +1003,7 @@ function createEditorInstance(config: {
                     const api = getEditorApiFromDom()
                     if (api && typeof api.asc_setViewMode === 'function') {
                         try {
-                            ;(api.asc_setViewMode as (this: unknown, v: boolean) => void).call(api, true)
+                            ; (api.asc_setViewMode as (this: unknown, v: boolean) => void).call(api, true)
                         } catch (e) {
                             console.warn('[OnlyOffice] asc_setViewMode', e)
                         }
@@ -1168,4 +1252,3 @@ onBeforeUnmount(() => {
     height: 100%;
 }
 </style>
-
