@@ -345,6 +345,22 @@ function findTextInDocument(text: string, forward = true): boolean {
     }
 }
 
+/** 删除当前选区（配合 findTextInDocument 使用） */
+function deleteSelectedText(): boolean {
+    const api = getEditorApiFromDom()
+    if (!api || typeof api.asc_Remove !== 'function') {
+        console.warn('[OnlyOffice] asc_Remove 不可用')
+        return false
+    }
+    try {
+        ; (api.asc_Remove as (this: unknown) => void).call(api)
+        return true
+    } catch (e) {
+        console.warn('[OnlyOffice] deleteSelectedText', e)
+        return false
+    }
+}
+
 type SearchSettingsLike = {
     put_Text: (t: string) => void
     put_MatchCase: (v: boolean) => void
@@ -356,6 +372,7 @@ defineExpose({
     insertHtmlAtCursor,
     getDocumentHtml,
     findTextInDocument,
+    deleteSelectedText,
     getEditorApiFromDom,
 })
 
@@ -673,7 +690,26 @@ function onCursorPluginMessage(ev: MessageEvent) {
         if (ev.source !== window.parent) return
         const text =
             typeof d.payload?.text === 'string' ? d.payload.text : typeof d.text === 'string' ? d.text : ''
-        insertTextAtCursor(text)
+        const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined
+        let ok = false
+        let error: string | undefined
+        try {
+            ok = insertTextAtCursor(text)
+            if (!ok) error = 'insertTextAtCursor returned false'
+        } catch (e) {
+            error = e instanceof Error ? e.message : String(e)
+        }
+        if (requestId) {
+            const reply = {
+                type: 'ONLYOFFICE_INSERT_TEXT_REPLY',
+                payload: { requestId, ok, error },
+            }
+            try {
+                ; (ev.source as Window | null)?.postMessage?.(reply, '*')
+            } catch {
+                /* ignore */
+            }
+        }
         return
     }
     if (d.type === 'ONLYOFFICE_GET_DOCUMENT_HTML') {
@@ -705,6 +741,35 @@ function onCursorPluginMessage(ev: MessageEvent) {
         const reply = {
             type: 'ONLYOFFICE_FIND_TEXT_REPLY',
             payload: { requestId, found, error },
+        }
+        try {
+            ; (ev.source as Window | null)?.postMessage?.(reply, '*')
+        } catch {
+            /* ignore */
+        }
+        try {
+            if (window.parent && window.parent !== window) {
+                window.parent.postMessage(reply, '*')
+            }
+        } catch {
+            /* ignore */
+        }
+        return
+    }
+    if (d.type === 'ONLYOFFICE_DELETE_SELECTED') {
+        if (ev.source !== window.parent) return
+        const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined
+        let ok = false
+        let error: string | undefined
+        try {
+            ok = deleteSelectedText()
+            if (!ok) error = 'delete selected failed'
+        } catch (e) {
+            error = e instanceof Error ? e.message : String(e)
+        }
+        const reply = {
+            type: 'ONLYOFFICE_DELETE_SELECTED_REPLY',
+            payload: { requestId, ok, error },
         }
         try {
             ; (ev.source as Window | null)?.postMessage?.(reply, '*')
