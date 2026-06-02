@@ -57,9 +57,16 @@ function clearInnerCursorBridge() {
 }
 
 /** 与任意父页面约定：type === ONLYOFFICE_CURSOR_PROBE，payload 含 event / source / doc */
-function postCursorProbe(event: string, source: string, api?: Record<string, unknown>) {
+function postCursorProbe(
+    event: string,
+    source: string,
+    api?: Record<string, unknown>,
+    extra?: Record<string, unknown>,
+) {
     const doc = api ? collectEditorCursorSnapshot(api) : undefined
-    const msg = { type: 'ONLYOFFICE_CURSOR_PROBE', payload: { event, source, doc } }
+    const payload: Record<string, unknown> = { event, source, ...(extra ?? {}) }
+    if (doc) payload.doc = doc
+    const msg = { type: 'ONLYOFFICE_CURSOR_PROBE', payload }
     window.postMessage(msg, '*')
     try {
         if (window.top && window.top !== window) {
@@ -862,6 +869,17 @@ function scheduleInnerCursorBridge() {
         }
         const onMove = () => fire('asc_onCursorMove')
         const onSel = () => fire('asc_onSelectionEnd')
+        const onOutline = (data?: unknown) => {
+            let outline: unknown = data
+            try {
+                if (data != null && typeof data === 'object') {
+                    outline = JSON.parse(JSON.stringify(data))
+                }
+            } catch {
+                outline = data != null ? String(data) : null
+            }
+            postCursorProbe('asc_onDocumentOutlineCurrentPosition', 'inner-bridge', api, { outline })
+        }
 
         let lastSdkModified = false
         const onModified = () => {
@@ -875,6 +893,7 @@ function scheduleInnerCursorBridge() {
 
         pair.attach('asc_onCursorMove', onMove)
         pair.attach('asc_onSelectionEnd', onSel)
+        pair.attach('asc_onDocumentOutlineCurrentPosition', onOutline)
         pair.attach('asc_onDocumentModifiedChanged', onModified)
 
         if (innerBridgeTimer) {
@@ -886,6 +905,7 @@ function scheduleInnerCursorBridge() {
             try {
                 pair.detach('asc_onCursorMove', onMove)
                 pair.detach('asc_onSelectionEnd', onSel)
+                pair.detach('asc_onDocumentOutlineCurrentPosition', onOutline)
                 pair.detach('asc_onDocumentModifiedChanged', onModified)
             } catch {
                 /* ignore */
