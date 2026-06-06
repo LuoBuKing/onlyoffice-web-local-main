@@ -353,9 +353,25 @@ function findTextInDocument(text: string, forward = true): boolean {
 }
 
 /** 删除当前选区（配合 findTextInDocument 使用） */
-function deleteSelectedText(): boolean {
+function deleteSelectedText(exactText?: string): boolean {
     const api = getEditorApiFromDom()
-    if (!api || typeof api.asc_Remove !== 'function') {
+    if (!api) return false
+
+    const exact = String(exactText ?? '').trim()
+    if (exact && typeof api.pluginMethod_InputText === 'function') {
+        try {
+            ; (api.pluginMethod_InputText as (this: unknown, t: string, back: string) => void).call(
+                api,
+                '',
+                exact,
+            )
+            return true
+        } catch (e) {
+            console.warn('[OnlyOffice] deleteSelectedText exact', e)
+        }
+    }
+
+    if (typeof api.asc_Remove !== 'function') {
         console.warn('[OnlyOffice] asc_Remove 不可用')
         return false
     }
@@ -766,10 +782,11 @@ function onCursorPluginMessage(ev: MessageEvent) {
     if (d.type === 'ONLYOFFICE_DELETE_SELECTED') {
         if (ev.source !== window.parent) return
         const requestId = typeof d.payload?.requestId === 'string' ? d.payload.requestId : undefined
+        const exactText = typeof d.payload?.exactText === 'string' ? d.payload.exactText : undefined
         let ok = false
         let error: string | undefined
         try {
-            ok = deleteSelectedText()
+            ok = deleteSelectedText(exactText)
             if (!ok) error = 'delete selected failed'
         } catch (e) {
             error = e instanceof Error ? e.message : String(e)
