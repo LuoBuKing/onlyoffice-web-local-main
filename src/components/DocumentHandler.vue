@@ -689,7 +689,7 @@ async function exportDocumentForSave(fileName: string): Promise<SavePayload> {
 function onCursorPluginMessage(ev: MessageEvent) {
     const d = ev.data as {
         type?: string
-        payload?: { html?: string; text?: string; requestId?: string; forward?: boolean }
+        payload?: { html?: string; text?: string; requestId?: string; forward?: boolean; exactText?: string }
         html?: string
         text?: string
     } | null
