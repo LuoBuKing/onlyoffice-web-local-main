@@ -15,9 +15,6 @@ export default defineConfig(({ mode }) => {
             port: parseInt(env.VITE_PORT) || 3000,
             host: '0.0.0.0',
         },
-        build: {
-            outDir: 'html',
-        },
         plugins: [
             AutoImport({
                 resolvers: [ElementPlusResolver()],
