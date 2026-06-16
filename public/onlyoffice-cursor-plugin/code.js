@@ -1,6 +1,7 @@
 /* global Asc, Api, window */
 ;(function (window) {
   var MSG = 'ONLYOFFICE_CURSOR_PROBE'
+  var US_NORMAL_TWIPS = 1440
   var tmr = null
 
   function post(payload) {
@@ -80,6 +81,30 @@
   // 官方说明：init 与 button 均为必填接口，缺少 button 可能导致插件无法正常工作
   window.Asc.plugin.button = function () {}
 
+  function applyUsNormalPageMargins(cb) {
+    if (!window.Asc || !window.Asc.plugin) {
+      if (cb) cb()
+      return
+    }
+    var ed = window.Asc.plugin.info ? window.Asc.plugin.info.editorType : null
+    if (ed !== 'word') {
+      if (cb) cb()
+      return
+    }
+    window.Asc.plugin.callCommand(
+      function () {
+        var section = Api.GetDocument().GetFinalSection()
+        section.SetPageMargins(US_NORMAL_TWIPS, US_NORMAL_TWIPS, US_NORMAL_TWIPS, US_NORMAL_TWIPS)
+        return true
+      },
+      false,
+      false,
+      function () {
+        if (cb) cb()
+      },
+    )
+  }
+
   window.Asc.plugin.init = function () {
     post({
       event: 'plugin_inited',
@@ -101,7 +126,9 @@
       emit('onSelectionEnd')
     })
     safeAttach('onDocumentContentReady', function () {
-      post({ event: 'onDocumentContentReady' })
+      applyUsNormalPageMargins(function () {
+        post({ event: 'onDocumentContentReady' })
+      })
     })
   }
 })(window)
