@@ -14,6 +14,7 @@
         style="height: 100%; width: 100%"
         :file="docmentObj"
         :readonly="editorReadonly"
+        :ui-theme="editorUiTheme"
         ref="documentHandler"
         @onlyoffice-cursor="onOnlyofficeCursor"
       />
@@ -101,6 +102,12 @@ const route = useRoute()
 const editorReadonly = computed(() => {
   const ro = route.query.readonly
   return ro === '1' || ro === 'true'
+})
+
+const editorUiTheme = computed(() => {
+  const theme = route.query.theme
+  if (theme === 'dark' || theme === 'light') return theme
+  return undefined
 })
 
 async function initFileUrl() {

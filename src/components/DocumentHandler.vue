@@ -23,6 +23,8 @@ const props = defineProps<{
     file: DocmentType
     /** 只读预览：禁止编辑与保存 */
     readonly?: boolean
+    /** 应用主题 light/dark，或 OnlyOffice 主题 id（theme-dark 等） */
+    uiTheme?: string
 }>()
 
 const emit = defineEmits<{
@@ -168,6 +170,44 @@ function collectEditorCursorSnapshot(api: Record<string, unknown>): Record<strin
 type EditorIframeWindow = Window & {
     Asc?: { editor?: Record<string, unknown>; aCa?: new (fileType: number, isDownload?: boolean) => object }
     editor?: Record<string, unknown>
+    Common?: { UI?: { Themes?: { setTheme: (id: string) => void } } }
+}
+
+function resolveUiThemeId(theme?: string): string {
+    if (theme === 'dark') return 'theme-dark'
+    if (theme === 'light') return 'theme-classic-light'
+    if (typeof theme === 'string' && theme.startsWith('theme-')) return theme
+    return 'theme-classic-light'
+}
+
+let uiThemeApplyTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearUiThemeApplyTimer() {
+    if (uiThemeApplyTimer) {
+        clearTimeout(uiThemeApplyTimer)
+        uiThemeApplyTimer = null
+    }
+}
+
+/** 运行时切换 OnlyOffice 工具栏界面主题（需 web-apps 加载完成） */
+function applyEditorUiTheme(themeInput?: string): void {
+    const themeId = resolveUiThemeId(themeInput ?? props.uiTheme)
+    clearUiThemeApplyTimer()
+
+    const tryApply = (tries = 0) => {
+        const w = getEditorIframeWindow()
+        const themes = w?.Common?.UI?.Themes
+        if (themes && typeof themes.setTheme === 'function') {
+            themes.setTheme(themeId)
+            return
+        }
+        if (tries >= 40) {
+            console.warn('[OnlyOffice] 界面主题切换超时，Common.UI.Themes 不可用', themeId)
+            return
+        }
+        uiThemeApplyTimer = setTimeout(() => tryApply(tries + 1), 250)
+    }
+    tryApply()
 }
 
 function getEditorIframeWindow(): EditorIframeWindow | null {
@@ -689,7 +729,14 @@ async function exportDocumentForSave(fileName: string): Promise<SavePayload> {
 function onCursorPluginMessage(ev: MessageEvent) {
     const d = ev.data as {
         type?: string
-        payload?: { html?: string; text?: string; requestId?: string; forward?: boolean; exactText?: string }
+        payload?: {
+            html?: string
+            text?: string
+            requestId?: string
+            forward?: boolean
+            exactText?: string
+            theme?: string
+        }
         html?: string
         text?: string
     } | null
@@ -827,6 +874,13 @@ function onCursorPluginMessage(ev: MessageEvent) {
                 postSaveDocumentReply(ev.source, requestId, null, msg)
             }
         })()
+        return
+    }
+    if (d.type === 'ONLYOFFICE_SET_UI_THEME') {
+        if (ev.source !== window.parent) return
+        const theme =
+            typeof d.payload?.theme === 'string' ? d.payload.theme : undefined
+        applyEditorUiTheme(theme)
     }
 }
 
@@ -937,6 +991,13 @@ function scheduleInnerCursorBridge() {
 const editor = ref<any>(null)
 const loading = ref(false)
 let stopFileWatch: (() => void) | null = null
+
+watch(
+    () => props.uiTheme,
+    (theme) => {
+        if (theme) applyEditorUiTheme(theme)
+    },
+)
 
 // 全局 media 映射对象
 const media: { [key: string]: string } = {}
@@ -1072,6 +1133,7 @@ function createEditorInstance(config: {
                 about: false,
                 hideRightMenu: readOnly,
                 comments: !readOnly,
+                uiTheme: resolveUiThemeId(props.uiTheme),
                 features: {
                     spellcheck: {
                         change: false,
@@ -1101,6 +1163,7 @@ function createEditorInstance(config: {
             },
             onDocumentReady: () => {
                 console.log('文档加载完成:', fileName)
+                applyEditorUiTheme(props.uiTheme)
                 if (readOnly) {
                     const api = getEditorApiFromDom()
                     if (api && typeof api.asc_setViewMode === 'function') {
@@ -1326,6 +1389,7 @@ onBeforeUnmount(() => {
     stopFileWatch?.()
     stopFileWatch = null
     clearInnerCursorBridge()
+    clearUiThemeApplyTimer()
     window.removeEventListener('message', onCursorPluginMessage)
     // 清理媒体资源的对象 URL
     Object.values(media).forEach((url) => {
